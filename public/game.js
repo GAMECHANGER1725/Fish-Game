@@ -132,7 +132,7 @@ function init() {
   scene.fog = new THREE.FogExp2(0x000010, 0.018);
 
   camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 300);
-  camera.position.set(0, 6, 22);
+  camera.position.set(0, 0, 22);
   camera.lookAt(0, 0, 0);
 
   renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true });
@@ -562,7 +562,10 @@ window.startGame = function (mode) {
   document.getElementById('overlay').style.display = 'none';
   score = 0; level = 1; lives = 3; endingShown = false;
   gameRunning = true;
-  if (mobileMode) setupMobileControls();
+  if (mobileMode) {
+    setupMobileControls();
+    document.getElementById('rotate-prompt').classList.add('mobile-active');
+  }
 
   if (!scene) init();
   if (fish) scene.remove(fish);
@@ -576,7 +579,27 @@ window.startGame = function (mode) {
 
 window.restartGame = function () {
   document.getElementById('ending-overlay').style.display = 'none';
-  window.startGame();
+  document.getElementById('gameover-overlay').style.display = 'none';
+  // Re-use the same mode that was chosen at the start screen
+  score = 0; level = 1; lives = 3; endingShown = false;
+  deathCooldown = 0;
+
+  // Clean up old scene entities
+  orbs.forEach(o => scene.remove(o));
+  hazards.forEach(h => scene.remove(h));
+  if (door) scene.remove(door);
+  fishTrail.forEach(t => scene.remove(t));
+  gatorTrail.forEach(t => scene.remove(t));
+  orbs = []; hazards = []; fishTrail = []; gatorTrail = [];
+  if (fish) scene.remove(fish);
+  if (gator) scene.remove(gator);
+  fish = buildFish();
+  gator = buildGator();
+
+  gameRunning = true;
+  setupLevel(1);
+  // Ensure render loop is running (setAnimationLoop is idempotent)
+  renderer.setAnimationLoop(gameLoop);
 };
 
 // ─── MAIN LOOP ────────────────────────────────────────────────────────────────
@@ -813,13 +836,12 @@ function fishDeath() {
   flashScreen();
 
   if (lives <= 0) {
-    showMessage('GAME OVER', 2000, '#ff3333');
+    showMessage('GAME OVER', 1800, '#ff3333');
     gameRunning = false;
     setTimeout(() => {
-      document.getElementById('overlay').style.display = 'flex';
-      document.getElementById('overlay').querySelector('h1').textContent = 'GAME OVER';
-      document.getElementById('overlay').querySelector('.subtitle').textContent = `Score: ${score}`;
-    }, 2200);
+      document.getElementById('gameover-score').textContent = `Score: ${score}`;
+      document.getElementById('gameover-overlay').style.display = 'flex';
+    }, 2000);
   } else {
     showMessage(`Ouch! ${lives} ${lives === 1 ? 'life' : 'lives'} left`, 1500, '#ff6666');
     fish.position.set(5, -3, 0);
@@ -892,13 +914,20 @@ function launchCelebration() {
 // ─── CAMERA ───────────────────────────────────────────────────────────────────
 
 function updateCamera(dt) {
-  // Smoothly track between fish and gator
   if (!fish || !gator) return;
   const midX = (fish.position.x + gator.position.x) / 2;
   const midY = (fish.position.y + gator.position.y) / 2;
 
-  camera.position.x += (midX * 0.3 - camera.position.x) * dt * 2;
-  camera.position.y += (midY * 0.15 + 6 - camera.position.y) * dt * 2;
+  // On mobile use a fixed overhead view sized to fit the world in landscape
+  const aspect = window.innerWidth / window.innerHeight;
+  const targetZ = mobileMode
+    ? Math.max(WORLD_W / aspect, WORLD_H) * 0.72   // fits world in landscape
+    : 22;
+  const targetY = mobileMode ? 0 : 6;
+
+  camera.position.x += (midX * 0.25 - camera.position.x) * dt * 2;
+  camera.position.y += (midY * 0.25 + targetY - camera.position.y) * dt * 2;
+  camera.position.z += (targetZ - camera.position.z) * dt * 3;
 
   // Shake
   if (cameraShake > 0) {
@@ -907,7 +936,7 @@ function updateCamera(dt) {
     cameraShake -= dt * 2;
   }
 
-  camera.lookAt(midX * 0.3, midY * 0.1, 0);
+  camera.lookAt(midX * 0.25, midY * 0.25, 0);
 }
 
 // ─── TRAILS ───────────────────────────────────────────────────────────────────
